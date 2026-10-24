@@ -1,6 +1,8 @@
 [build]
+  base = ""
   publish = "."
   functions = "netlify/functions"
+  command = "echo 'Static site ready'"
 
 [[redirects]]
   from = "/api/listings"
@@ -11,9 +13,3 @@
   for = "/assets/*"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
-
-[[headers]]
-  for = "/api/*"
-  [headers.values]
-    Cache-Control = "public, max-age=60, s-maxage=60"
-    Access-Control-Allow-Origin = "*"
