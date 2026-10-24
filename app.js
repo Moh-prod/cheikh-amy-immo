@@ -542,8 +542,15 @@
       if (!res.ok) return;
       const data = await res.json();
       if (data && Array.isArray(data.listings) && data.listings.length > 0) {
-        LISTINGS = data.listings;
-        updateListingsUI();
+        // Filtre de sécurité : ignore les lignes vides ou sans titre réel
+        const realListings = data.listings.filter((it) => it && it.title && it.title !== 'Bien immobilier');
+        if (realListings.length > 0) {
+          // Fusionne avec les annonces par défaut pour conserver tous les pôles (Architecture, Tourisme, etc.)
+          const airtableRefs = new Set(realListings.map(it => it.ref));
+          const remainingDefaults = LISTINGS.filter(it => !airtableRefs.has(it.ref));
+          LISTINGS = [...realListings, ...remainingDefaults];
+          updateListingsUI();
+        }
       }
     } catch (e) {
       // Mode hors-ligne ou fallback local transparent
