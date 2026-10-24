@@ -1,0 +1,18 @@
+# Netlify
+.netlify
+
+# Video project with Remotion & node_modules
+video-cheikh-amy/
+node_modules/
+
+# Documents privés et temporaires
+*.pdf
+Order - OVHcloud.pdf
+DOC-20261003-WA0003.pdf
+
+# OS & Logs
+.DS_Store
+Thumbs.db
+*.log
+.env
+.env.local

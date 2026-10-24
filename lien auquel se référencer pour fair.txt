@@ -1,0 +1,7 @@
+lien auquel se référencer pour faire a peu près le reverse engineering mais plus améliorer jusqu'à 100 fois le design, voici le lien: https://diwaan-immo.com/
+
+
+la charte graphique du site est le bleue et le blanc moderne
+
+
+le contenue du site est le pdf qui a été fourni, l'utilisateur doit être rediriger vers le numéro WhatsApp ou vers email ou vers appel en utilisant les contacts dans le pdf

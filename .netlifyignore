@@ -1,0 +1,9 @@
+video-cheikh-amy/
+node_modules/
+*.pdf
+CLAUDE.md
+PROMPT_CLAUDE_CODE.md
+*.txt
+*.jpeg
+.git
+.github
