@@ -1,6 +1,6 @@
 /**
  * Netlify Function : API Listings (Connexion sécurisée avec Airtable)
- * Récupère les offres depuis Airtable et les formate pour le site Cheikh Amy Immo.
+ * Récupère les offres depuis Airtable et les fusionne intelligemment avec le catalogue officiel.
  * Cache CDN de 60 secondes pour une vitesse optimale et zéro dépassement de quota.
  */
 
@@ -98,7 +98,24 @@ const DEFAULT_LISTINGS = [
 const parseCat = (raw) => {
   if (!raw) return ['vente'];
   if (Array.isArray(raw)) return raw.map(c => String(c).toLowerCase().trim());
-  return String(raw).split(',').map(c => c.toLowerCase().trim()).filter(Boolean);
+  const str = String(raw).toLowerCase().trim();
+  if (str.includes('terrain') || str.includes('foncier')) return ['terrain', 'vente'];
+  if (str.includes('archi') || str.includes('plan') || str.includes('design')) return ['architecture'];
+  if (str.includes('tour') || str.includes('hotel') || str.includes('lodge') || str.includes('saloum')) return ['tourisme'];
+  if (str.includes('locat') || str.includes('louer')) return ['location'];
+  if (str.includes('seri') || str.includes('impri') || str.includes('textile')) return ['serigraphie'];
+  return str.split(/[,;\/]+/).map(c => c.trim()).filter(Boolean);
+};
+
+const parseStatus = (raw) => {
+  if (!raw) return 'dispo';
+  const s = String(raw).toLowerCase().trim();
+  if (s.includes('exclu')) return 'exclu';
+  if (s.includes('plan')) return 'plan';
+  if (s.includes('locat')) return 'location';
+  if (s.includes('devis')) return 'devis';
+  if (s.includes('vent')) return 'vente';
+  return 'dispo';
 };
 
 const parseFeats = (raw) => {
@@ -120,7 +137,7 @@ export default async (req) => {
   const AIRTABLE_BASE_ID = process.env.AIRTABLE_BASE_ID;
   const AIRTABLE_TABLE_NAME = process.env.AIRTABLE_TABLE_NAME || 'Biens';
 
-  // Si Airtable n'est pas configuré, renvoie les annonces par défaut
+  // Si Airtable n'est pas encore configuré, renvoie les 11 annonces complètes
   if (!AIRTABLE_TOKEN || !AIRTABLE_BASE_ID) {
     return new Response(JSON.stringify({ source: 'default', listings: DEFAULT_LISTINGS }), {
       status: 200,
@@ -141,7 +158,7 @@ export default async (req) => {
     });
 
     if (!res.ok) {
-      console.error('Erreur API Airtable:', res.status, await res.text());
+      console.warn('Airtable API non disponible, utilisation du catalogue par défaut');
       return new Response(JSON.stringify({ source: 'fallback', listings: DEFAULT_LISTINGS }), {
         status: 200,
         headers: {
@@ -155,33 +172,54 @@ export default async (req) => {
     const data = await res.json();
     const records = data.records || [];
 
-    const listings = records
-      .filter((r) => r.fields && (r.fields['En ligne'] === undefined || r.fields['En ligne'] === true))
+    // Filtre uniquement les lignes valides qui ont un vrai titre (ignore les 3 lignes vides par défaut d'Airtable)
+    const validAirtableListings = records
       .map((r, idx) => {
-        const f = r.fields;
-        const photos = f['Photos'] || f['Photo'] || f['Images'] || [];
+        const f = r.fields || {};
+        const title = (f['Titre'] || f['titre'] || f['Nom'] || f['nom'] || f['Name'] || f['name'] || '').trim();
+        
+        // Ignore les lignes vides ou sans titre
+        if (!title || title.toLowerCase() === 'bien immobilier') return null;
+
+        // Respecte la case "En ligne" si elle existe
+        if (f['En ligne'] === false || f['En Ligne'] === false || f['Active'] === false) return null;
+
+        const photos = f['Photos'] || f['Photo'] || f['Images'] || f['Image'] || f['Attachments'] || [];
         const photoUrl = photos.length > 0 ? (photos[0].thumbnails?.large?.url || photos[0].url) : 'villa-moderne';
 
         return {
-          ref: f['Référence'] || f['Reference'] || `CA-${String(idx + 1).padStart(2, '0')}`,
-          title: f['Titre'] || f['Nom'] || 'Bien immobilier',
-          cat: parseCat(f['Catégorie'] || f['Categorie']),
-          status: (f['Statut'] || 'dispo').toLowerCase().trim(),
+          ref: f['Référence'] || f['Reference'] || f['Ref'] || `CA-AIR-${idx + 1}`,
+          title: title,
+          cat: parseCat(f['Catégorie'] || f['Categorie'] || f['Category']),
+          status: parseStatus(f['Statut'] || f['Status']),
           img: photoUrl,
           w: 640,
           h: 640,
           pos: '50% 50%',
-          alt: f['Titre'] || 'Illustration du bien',
-          area: f['Zone'] || f['Région'] || 'Foundiougne',
-          loc: f['Localisation'] || 'Foundiougne',
-          desc: f['Description'] || '',
-          feats: parseFeats(f['Caractéristiques'] || f['Caracteristiques']),
+          alt: title,
+          area: f['Zone'] || f['Région'] || f['Region'] || 'Foundiougne',
+          loc: f['Localisation'] || f['Location'] || 'Foundiougne',
+          desc: f['Description'] || f['Desc'] || '',
+          feats: parseFeats(f['Caractéristiques'] || f['Caracteristiques'] || f['Features']),
           priceLabel: f['Label Prix'] || (f['Statut'] === 'location' ? 'Loyer mensuel' : 'Prix de vente'),
-          price: f['Prix'] || 'Sur demande',
+          price: f['Prix'] || f['Price'] || 'Sur demande',
         };
-      });
+      })
+      .filter(Boolean);
 
-    return new Response(JSON.stringify({ source: 'airtable', listings: listings.length > 0 ? listings : DEFAULT_LISTINGS }), {
+    // Stratégie de fusion intelligente :
+    // Si aucune ligne valide n'a encore été saisie dans Airtable, garder tout le catalogue d'origine
+    let finalList = [...DEFAULT_LISTINGS];
+
+    if (validAirtableListings.length > 0) {
+      // Les biens ajoutés dans Airtable sont placés en priorité au début du catalogue
+      // et écrasent les biens de démonstration si la même référence est utilisée
+      const airtableRefs = new Set(validAirtableListings.map(it => it.ref));
+      const remainingDefaults = DEFAULT_LISTINGS.filter(it => !airtableRefs.has(it.ref));
+      finalList = [...validAirtableListings, ...remainingDefaults];
+    }
+
+    return new Response(JSON.stringify({ source: 'airtable', listings: finalList }), {
       status: 200,
       headers: {
         'Content-Type': 'application/json',
